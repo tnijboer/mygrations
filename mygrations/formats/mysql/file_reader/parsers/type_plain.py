@@ -7,6 +7,9 @@ class TypePlain(Parser, Type):
     _is_primary_key = False
 
     # created date
+    # The NULL / NOT NULL rules are repeated before and after DEFAULT to support
+    # both orderings (`NOT NULL DEFAULT x` and `DEFAULT x NOT NULL`), following
+    # the same pattern used by TypeCharacter and TypeText for repeated optional rules.
     rules = [
         {"type": "regexp", "value": "[^\(\s\)]+", "name": "name"},
         {"type": "regexp", "value": "\w+", "name": "type"},
@@ -20,6 +23,8 @@ class TypePlain(Parser, Type):
             "optional": True,
             "name": "default",
         },
+        {"type": "literal", "value": "NULL", "optional": True, "name": "bare_null"},
+        {"type": "literal", "value": "NOT NULL", "optional": True},
         {"type": "literal", "value": "AUTO_INCREMENT", "optional": True},
         {"type": "literal", "value": ",", "optional": True, "name": "ending_comma"},
     ]
@@ -37,9 +42,7 @@ class TypePlain(Parser, Type):
         self._column_type = self._values["type"]
         self._unsigned = True if "UNSIGNED" in self._values else False
         self._has_default = "default" in self._values
-        self._default = (
-            self._values["default"].strip("'") if "default" in self._values else None
-        )
+        self._default = self._values["default"].strip("'") if "default" in self._values else None
         self._auto_increment = True if "AUTO_INCREMENT" in self._values else False
         self._is_primary_key = True if "PRIMARY KEY" in self._values else False
 
