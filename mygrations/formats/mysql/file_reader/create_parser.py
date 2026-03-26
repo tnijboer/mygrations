@@ -7,6 +7,7 @@ from mygrations.formats.mysql.definitions.index import Index
 from mygrations.formats.mysql.definitions.table import Table
 
 from .parsers import *
+from .parsers.constraint_foreign import ConstraintForeignBare
 
 
 class CreateParser(Table, Parser):
@@ -112,6 +113,13 @@ class CreateParser(Table, Parser):
 
                 self.add_index(definition)
             elif isinstance(definition, Constraint):
+                if isinstance(definition, ConstraintForeignBare):
+                    fk_name = "%s_%s_%s_fk" % (
+                        self._name,
+                        definition._column_name,
+                        definition._foreign_table_name,
+                    )
+                    definition._name = fk_name[:64]
                 if definition._name in self._constraints:
                     self._global_errors.append(f"Table '{self._name}' has two constraints named '{definition._name}'")
                     continue
