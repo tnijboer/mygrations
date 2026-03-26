@@ -9,16 +9,16 @@ class TestTypeText(unittest.TestCase):
         returned = parser.parse("name text not null,")
 
         self.assertTrue(parser.matched)
-        self.assertEquals('', returned)
+        self.assertEqual('', returned)
 
-        self.assertEquals('name', parser._name)
-        self.assertEquals('text', parser._column_type)
+        self.assertEqual('name', parser._name)
+        self.assertEqual('text', parser._column_type)
         self.assertFalse(parser._null)
         self.assertTrue(parser.has_comma)
-        self.assertEquals('', parser._character_set)
-        self.assertEquals('', parser._collate)
-        self.assertEquals(0, len(parser._parsing_errors))
-        self.assertEquals(0, len(parser._parsing_warnings))
+        self.assertEqual('', parser._character_set)
+        self.assertEqual('', parser._collate)
+        self.assertEqual(0, len(parser._parsing_errors))
+        self.assertEqual(0, len(parser._parsing_warnings))
 
     def test_character_set(self):
 
@@ -27,16 +27,16 @@ class TestTypeText(unittest.TestCase):
         returned = parser.parse("name text character set 'blah' collate 'boo',")
 
         self.assertTrue(parser.matched)
-        self.assertEquals('', returned)
+        self.assertEqual('', returned)
 
-        self.assertEquals('name', parser._name)
-        self.assertEquals('text', parser._column_type)
+        self.assertEqual('name', parser._name)
+        self.assertEqual('text', parser._column_type)
         self.assertTrue(parser._null)
         self.assertTrue(parser.has_comma)
-        self.assertEquals('blah', parser._character_set)
-        self.assertEquals('boo', parser._collate)
-        self.assertEquals(0, len(parser._parsing_errors))
-        self.assertEquals(0, len(parser._parsing_warnings))
+        self.assertEqual('blah', parser._character_set)
+        self.assertEqual('boo', parser._collate)
+        self.assertEqual(0, len(parser._parsing_errors))
+        self.assertEqual(0, len(parser._parsing_warnings))
 
     def test_strip_backticks(self):
 
@@ -45,5 +45,5 @@ class TestTypeText(unittest.TestCase):
         returned = parser.parse("`name` text not null")
 
         self.assertTrue(parser.matched)
-        self.assertEquals('', returned)
-        self.assertEquals('name', parser._name)
+        self.assertEqual('', returned)
+        self.assertEqual('name', parser._name)

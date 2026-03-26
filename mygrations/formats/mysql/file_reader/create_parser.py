@@ -1,3 +1,4 @@
+import re
 from collections import OrderedDict
 
 from mygrations.core.parse.parser import Parser
@@ -39,6 +40,7 @@ class CreateParser(Table, Parser):
                 IndexKey,
                 IndexUnique,
                 ConstraintForeign,
+                ConstraintForeignBare,
                 TypeCharacter,
                 TypeNumeric,
                 TypeDecimal,
@@ -63,14 +65,26 @@ class CreateParser(Table, Parser):
         },
     ]
 
+    def parse(self, string=""):
+        # Strip inline -- comments before the base parser collapses whitespace.
+        # parser.py:68 does re.sub('\s+', ' ', string) which turns newlines into
+        # spaces, so '-- comment\ncolumn' becomes '-- comment column' and the
+        # comment eats the next line. Stripping here prevents that.
+        string = re.sub(r"--[^\n]*", "", string)
+        # Strip index prefix-lengths like full_path(255) → full_path.
+        # The delimited parser splits column lists on ')' which conflicts with
+        # the inner ')' of prefix-lengths. We match word(digits) preceded by
+        # '(' or ',' (index column-list context) which avoids type lengths like
+        # INT(11) or VARCHAR(255) that are preceded by the type keyword.
+        string = re.sub(r"(\(|\,)(\s*`?\w+`?)\(\d+\)", r"\1\2", string)
+        return super().parse(string)
+
     def process(self):
 
         self.semicolon = True if "closing_semicolon" in self._values else False
         self._name = self._values["name"].strip("`")
         self._definitions = self._values["definitions"]
-        self._options = (
-            self._values["table_options"] if "table_options" in self._values else []
-        )
+        self._options = self._values["table_options"] if "table_options" in self._values else []
         self._columns = OrderedDict()
         self._indexes = OrderedDict()
         self._constraints = OrderedDict()
@@ -82,37 +96,30 @@ class CreateParser(Table, Parser):
         for definition in self._definitions:
             if hasattr(definition, "as_definition"):
                 if definition._name in self._columns:
-                    self._global_errors.append(
-                        f"Table '{self._name}' has two columns named '{definition._name}'"
-                    )
+                    self._global_errors.append(f"Table '{self._name}' has two columns named '{definition._name}'")
                     continue
 
-                self.add_column(
-                    definition.as_definition()
-                )  # see notes on definition.as_definition()
+                self.add_column(definition.as_definition())  # see notes on definition.as_definition()
+
+                if getattr(definition, "_is_primary_key", False):
+                    primary_index = Index(name="", columns=[definition._name], index_type="primary")
+                    self.add_index(primary_index)
+
             elif isinstance(definition, Index):
                 if definition._name in self._indexes:
-                    self._global_errors.append(
-                        f"Table '{self._name}' has two indexes named '{definition._name}'"
-                    )
+                    self._global_errors.append(f"Table '{self._name}' has two indexes named '{definition._name}'")
                     continue
 
                 self.add_index(definition)
             elif isinstance(definition, Constraint):
                 if definition._name in self._constraints:
-                    self._global_errors.append(
-                        f"Table '{self._name}' has two constraints named '{definition._name}'"
-                    )
+                    self._global_errors.append(f"Table '{self._name}' has two constraints named '{definition._name}'")
                     continue
 
                 self.add_constraint(definition)
 
             else:
-                raise ValueError(
-                    "Found unknown definition of type ".definition.__class__
-                )
+                raise ValueError("Found unknown definition of type ".definition.__class__)
 
         if not self.semicolon:
-            self._global_errors.append(
-                "Missing ending semicolon for table %s" % self._name
-            )
+            self._global_errors.append("Missing ending semicolon for table %s" % self._name)

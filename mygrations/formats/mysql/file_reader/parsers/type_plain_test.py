@@ -9,15 +9,15 @@ class TestTypePlain(unittest.TestCase):
         returned = parser.parse("created date NOT NULL DEFAULT 'bob',")
 
         self.assertTrue(parser.matched)
-        self.assertEquals('', returned)
+        self.assertEqual('', returned)
 
-        self.assertEquals('created', parser._name)
-        self.assertEquals('date', parser._column_type)
+        self.assertEqual('created', parser._name)
+        self.assertEqual('date', parser._column_type)
         self.assertFalse(parser._null)
-        self.assertEquals('bob', parser._default)
+        self.assertEqual('bob', parser._default)
         self.assertTrue(parser.has_comma)
-        self.assertEquals(0, len(parser._parsing_errors))
-        self.assertEquals(0, len(parser._parsing_warnings))
+        self.assertEqual(0, len(parser._parsing_errors))
+        self.assertEqual(0, len(parser._parsing_warnings))
 
     def test_optional_default(self):
 
@@ -26,15 +26,15 @@ class TestTypePlain(unittest.TestCase):
         returned = parser.parse("created date")
 
         self.assertTrue(parser.matched)
-        self.assertEquals('', returned)
+        self.assertEqual('', returned)
 
-        self.assertEquals('created', parser._name)
-        self.assertEquals('date', parser._column_type)
+        self.assertEqual('created', parser._name)
+        self.assertEqual('date', parser._column_type)
         self.assertTrue(parser._null)
-        self.assertEquals(None, parser._default)
+        self.assertEqual(None, parser._default)
         self.assertFalse(parser.has_comma)
-        self.assertEquals(0, len(parser._parsing_errors))
-        self.assertEquals(0, len(parser._parsing_warnings))
+        self.assertEqual(0, len(parser._parsing_errors))
+        self.assertEqual(0, len(parser._parsing_warnings))
 
     def test_strip_backticks(self):
 
@@ -43,5 +43,5 @@ class TestTypePlain(unittest.TestCase):
         returned = parser.parse("`created` date")
 
         self.assertTrue(parser.matched)
-        self.assertEquals('', returned)
-        self.assertEquals('created', parser._name)
+        self.assertEqual('', returned)
+        self.assertEqual('created', parser._name)

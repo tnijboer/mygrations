@@ -142,3 +142,98 @@ class CreateParserTest(unittest.TestCase):
         self.assertTrue(parser.semicolon)
         self.assertEqual(0, len(parser.schema_errors))
         self.assertEqual(["id"], parser.primary.columns)
+
+    def test_inline_comments_stripped(self):
+
+        parser = CreateParser()
+        returned = parser.parse(
+            """CREATE TABLE `test` (
+            `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+            -- This is a comment
+            `name` varchar(255) NOT NULL,
+            -- Another comment
+            `status` tinyint(1) DEFAULT 0,
+            PRIMARY KEY (`id`)
+            );
+        """
+        )
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("test", parser.name)
+        self.assertEqual("", returned)
+        self.assertEqual(3, len(parser.columns))
+        self.assertIn("id", parser.columns)
+        self.assertIn("name", parser.columns)
+        self.assertIn("status", parser.columns)
+
+    def test_inline_comments_at_line_end(self):
+
+        parser = CreateParser()
+        returned = parser.parse(
+            """CREATE TABLE `test` (
+            `id` int(10) unsigned NOT NULL AUTO_INCREMENT, -- primary id
+            `name` varchar(255) NOT NULL, -- user name
+            PRIMARY KEY (`id`)
+            );
+        """
+        )
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("test", parser.name)
+        self.assertEqual(2, len(parser.columns))
+        self.assertIn("id", parser.columns)
+        self.assertIn("name", parser.columns)
+
+    def test_prefix_length_index_stripped(self):
+
+        parser = CreateParser()
+        returned = parser.parse(
+            """CREATE TABLE `test` (
+            `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+            `full_path` text NOT NULL,
+            `name` varchar(255) NOT NULL,
+            PRIMARY KEY (`id`),
+            INDEX `idx_full_path` (`full_path`(255)),
+            KEY `idx_name` (`name`(100), `id`)
+            );
+        """
+        )
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("test", parser.name)
+        self.assertEqual("", returned)
+        self.assertEqual(3, len(parser.columns))
+        self.assertEqual(3, len(parser.indexes))
+        self.assertEqual(["full_path"], parser.indexes["idx_full_path"].columns)
+        self.assertEqual(["name", "id"], parser.indexes["idx_name"].columns)
+        self.assertEqual("VARCHAR", parser.columns["name"].column_type)
+        self.assertEqual("255", parser.columns["name"].length)
+
+    def test_sql_files_parse(self):
+
+        import os
+
+        sql_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "sql")
+        if not os.path.isdir(sql_dir):
+            self.skipTest("sql/ directory not found")
+
+        known_broken = {
+            "app_settings.sql",
+            "approval_rule_groups.sql",
+        }
+        for fname in sorted(os.listdir(sql_dir)):
+            if not fname.endswith(".sql") or fname in known_broken:
+                continue
+            with open(os.path.join(sql_dir, fname)) as f:
+                sql = f.read()
+            parser = CreateParser()
+            parser.parse(sql)
+            self.assertTrue(
+                parser.matched,
+                f"{fname} did not match",
+            )
+            self.assertEqual(
+                [],
+                parser._global_errors,
+                f"{fname} has parse errors: {parser._global_errors}",
+            )
