@@ -52,8 +52,8 @@ class TypeText(Parser, Type):
         self._default = self._values["default"] if "default" in self._values else None
         self._column_type = self._values["type"]
         self._null = False if "NOT NULL" in self._values else True
-        self._character_set = self._values["character_set"].strip("'") if "character_set" in self._values else ""
-        self._collate = self._values["collate"].strip("'") if "collate" in self._values else ""
+        self._character_set = self._values["character_set"].strip("'") if "character_set" in self._values else None
+        self._collate = self._values["collate"].strip("'") if "collate" in self._values else None
 
         # slightly more work on the default
         if self._default and len(self._default) >= 2 and self._default[0] == "'" and self._default[-1] == "'":
