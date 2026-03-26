@@ -1,6 +1,6 @@
 [project]
 name = "mygrations"
-version = "1.0.6"
+version = "1.0.7"
 description = "A general purpose migration tool for managing MySQL updates"
 readme = "README.md"
 license = { text = "MIT" }
@@ -33,6 +33,7 @@ packages = ["mygrations"]
 
 [dependency-groups]
 dev = [
+    "git-cliff>=2.12.0",
     "pytest>=9.0.2",
     "ruff>=0.15.7",
     "ty>=0.0.25",
@@ -67,7 +68,4 @@ ignore = [
     "F841",   # local variable assigned but never used — fix separately
     "W605",   # invalid escape sequence — auto-fixable, but large blast radius
 ]
-
-[tool.ty]
-environment.python = "./.python-version"
 
