@@ -4,11 +4,11 @@ class TestString(unittest.TestCase):
     def test_string_conversion_with_collation(self):
         column = String('test_column', 'VARCHAR', length=25, default='asdf', character_set='unicode', collate='sup')
 
-        self.assertEquals(
+        self.assertEqual(
             '`test_column` VARCHAR(25) DEFAULT \'asdf\' CHARACTER SET \'UNICODE\' COLLATE \'SUP\'', str(column)
         )
-        self.assertEquals([], column.schema_errors)
-        self.assertEquals([], column.schema_warnings)
+        self.assertEqual([], column.schema_errors)
+        self.assertEqual([], column.schema_warnings)
 
     def test_is_the_same(self):
         attrs = {
@@ -42,7 +42,7 @@ class TestString(unittest.TestCase):
         ]
         for column_type in no_default:
             column = String('test', column_type, default='Hey', has_default=True)
-            self.assertEquals(
+            self.assertEqual(
                 [f"Column 'test' of type '{column_type}' cannot have a default"],
                 column.schema_errors,
             )
@@ -61,12 +61,12 @@ class TestString(unittest.TestCase):
         ]
         for column_type in nope:
             column = String('test', column_type, character_set='Hey')
-            self.assertEquals(
+            self.assertEqual(
                 [f"Column 'test' of type '{column_type}' cannot have a collation/character set"],
                 column.schema_errors,
             )
             column = String('test', column_type, collate='Hey')
-            self.assertEquals(
+            self.assertEqual(
                 [f"Column 'test' of type '{column_type}' cannot have a collation/character set"],
                 column.schema_errors,
             )
@@ -85,7 +85,7 @@ class TestString(unittest.TestCase):
         ]
         for column_type in no_length:
             column = String('test', column_type, length='28')
-            self.assertEquals(
+            self.assertEqual(
                 [f'Column test of type {column_type} cannot have a length'],
                 column.schema_errors,
             )
@@ -97,25 +97,25 @@ class TestString(unittest.TestCase):
         ]
         for column_type in binary_only:
             column = String('test', column_type, character_set='Hey')
-            self.assertEquals(
+            self.assertEqual(
                 [f"Column 'test' of type '{column_type}' can only have a collate/character set of BINARY"],
                 column.schema_errors,
             )
             column = String('test', column_type, collate='Hey')
-            self.assertEquals(
+            self.assertEqual(
                 [f"Column 'test' of type '{column_type}' can only have a collate/character set of BINARY"],
                 column.schema_errors,
             )
             column = String('test', column_type, collate='binary')
-            self.assertEquals([], column.schema_errors)
+            self.assertEqual([], column.schema_errors)
             column = String('test', column_type, character_set='binary')
-            self.assertEquals([], column.schema_errors)
+            self.assertEqual([], column.schema_errors)
             column = String('test', column_type, character_set='binary', collate='binary')
-            self.assertEquals([], column.schema_errors)
+            self.assertEqual([], column.schema_errors)
 
     def test_no_auto_increment(self):
         column = String('test', 'VARCHAR', auto_increment=True)
-        self.assertEquals(
+        self.assertEqual(
             [f"Column 'test' of type 'VARCHAR' cannot be an AUTO_INCREMENT: only numeric columns can"],
             column.schema_errors,
         )

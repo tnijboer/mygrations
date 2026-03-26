@@ -13,7 +13,7 @@ class TestColumn(unittest.TestCase):
             unsigned=True,
         )
 
-        self.assertEquals('`test_column` INT(25) UNSIGNED NOT NULL DEFAULT 0', str(column))
+        self.assertEqual('`test_column` INT(25) UNSIGNED NOT NULL DEFAULT 0', str(column))
 
     def test_is_the_same(self):
         attrs = {
@@ -53,7 +53,7 @@ class TestColumn(unittest.TestCase):
             null=False,
             default=None,
         )
-        self.assertEquals(
+        self.assertEqual(
             [
                 'Column test_column does not allow null values and has no default: you should set a default to avoid warnings'
             ],
@@ -61,4 +61,4 @@ class TestColumn(unittest.TestCase):
         )
 
         column = MockColumn('test_column', 'INT')
-        self.assertEquals([], column.schema_warnings)
+        self.assertEqual([], column.schema_warnings)
