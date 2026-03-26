@@ -126,6 +126,13 @@ class CreateParser(Table, Parser):
 
                 self.add_constraint(definition)
 
+                if isinstance(definition, ConstraintForeignBare):
+                    col = definition._column_name
+                    has_index = col in self._indexes or any(col in idx._columns for idx in self._indexes.values())
+                    has_future_index = any(isinstance(d, Index) and col in d._columns for d in self._definitions)
+                    if not has_index and not has_future_index:
+                        self.add_index(Index(name=col, columns=[col], index_type="index"))
+
             else:
                 raise ValueError("Found unknown definition of type ".definition.__class__)
 
