@@ -25,6 +25,7 @@ class TypePlain(Parser, Type):
         },
         {"type": "literal", "value": "NULL", "optional": True, "name": "bare_null"},
         {"type": "literal", "value": "NOT NULL", "optional": True},
+        {"type": "literal", "value": "PRIMARY KEY", "optional": True},
         {"type": "literal", "value": "AUTO_INCREMENT", "optional": True},
         {"type": "literal", "value": ",", "optional": True, "name": "ending_comma"},
     ]

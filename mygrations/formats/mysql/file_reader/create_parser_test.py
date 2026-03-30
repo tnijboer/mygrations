@@ -209,6 +209,31 @@ class CreateParserTest(unittest.TestCase):
         self.assertEqual("VARCHAR", parser.columns["name"].column_type)
         self.assertEqual("255", parser.columns["name"].length)
 
+    def test_boolean_columns_with_bare_foreign_key(self):
+
+        parser = CreateParser()
+        returned = parser.parse(
+            """CREATE TABLE IF NOT EXISTS project_configs (
+            project_id INT UNSIGNED NOT NULL DEFAULT 0 PRIMARY KEY,
+            reset_approvals_on_push BOOLEAN,
+            selective_code_owner_removals BOOLEAN,
+            disable_overriding_approvers_per_merge_request BOOLEAN,
+            merge_requests_author_approval BOOLEAN,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+        """
+        )
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("project_configs", parser.name)
+        self.assertEqual("", returned)
+        self.assertEqual(5, len(parser.columns))
+        self.assertEqual(1, len(parser.constraints))
+        self.assertEqual("INT", parser.columns["project_id"].column_type)
+        self.assertTrue(parser.columns["project_id"].unsigned)
+        self.assertEqual("TINYINT", parser.columns["reset_approvals_on_push"].column_type)
+        self.assertEqual("1", parser.columns["reset_approvals_on_push"].length)
+
     def test_sql_files_parse(self):
 
         import os
