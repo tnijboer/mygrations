@@ -3,11 +3,14 @@ import copy
 from mygrations.formats.mysql.definitions.database import Database
 from mygrations.formats.mysql.mygrations.operations.alter_table import AlterTable
 from mygrations.formats.mysql.mygrations.operations.add_constraint import AddConstraint
+from mygrations.formats.mysql.mygrations.operations.remove_constraint import RemoveConstraint
 from mygrations.formats.mysql.mygrations.operations.remove_table import RemoveTable
 from mygrations.formats.mysql.mygrations.operations.disable_checks import DisableChecks
 from mygrations.formats.mysql.mygrations.operations.enable_checks import EnableChecks
+
+
 class Mygration:
-    """ Creates a migration plan to update a database to a given spec.
+    """Creates a migration plan to update a database to a given spec.
 
     If only one database is passed in, it treats it as a structure to migrate
     to starting from a blank slate, which primariliy means just figuring out
@@ -28,8 +31,9 @@ class Mygration:
     7. Apply all foreign key constraints that were previously ignored in steps 4 & 6
     8. Remove any tables that need to be removed
     """
+
     def __init__(self, db_to, db_from=None, disable_checks=True):
-        """ Create a migration plan
+        """Create a migration plan
 
         :param db_to: The target database structure to migrate to
         :param db_from: The current database structure to migrate from
@@ -55,7 +59,7 @@ class Mygration:
 
     @property
     def operations(self):
-        """ Public getter.  Returns list of operations to bring db_from to db_to
+        """Public getter.  Returns list of operations to bring db_from to db_to
 
         If db_from doesn't exist then it will be a list of operations to
         create db_to.
@@ -73,7 +77,7 @@ class Mygration:
 
     @property
     def errors(self):
-        """ Public getter.  Returns list of 1215 errors (as strings)
+        """Public getter.  Returns list of 1215 errors (as strings)
 
         :returns: A list of 1215 error messages
         :rtype: [string]
@@ -105,17 +109,25 @@ class Mygration:
         :return: (added, removed, overlap)
         """
 
-        return ([key for key in to_dict if key not in from_dict], [key for key in from_dict if key not in to_dict],
-                [key for key in from_dict if key in to_dict])
+        return (
+            [key for key in to_dict if key not in from_dict],
+            [key for key in from_dict if key not in to_dict],
+            [key for key in from_dict if key in to_dict],
+        )
 
     def _process(self):
-        """ Figures out the operations needed to get to self.db_to
+        """Figures out the operations needed to get to self.db_to
 
         Returns a list of operations that will migrate db_from to db_to
 
         For performance reasons the migrations are done with foreign key
         checks off: the first operation turns them off, and the last operation
         turns them on.
+
+        MySQL does not allow ALTER TABLE to change the type of a column that
+        participates in a foreign key constraint, even with SET FOREIGN_KEY_CHECKS=0.
+        (MySQL error 3780).  To work around this, we detect column type changes on
+        FK-involved columns and emit DROP FK / ALTER / ADD FK sequences.
 
         :return: Operations needed to complete the migration
         :rtype: [mygrations.formats.mysql.mygrations.operations]
@@ -131,10 +143,20 @@ class Mygration:
         for table_name in tables_to_add:
             operations.append(self.db_to.tables[table_name].create())
 
+        fk_drop_ops, fk_add_ops, cycled_fks = self._find_fk_ops_for_column_type_changes(tables_to_update)
+
+        operations.extend(fk_drop_ops)
+
         for table_name in tables_to_update:
             target_table = self.db_to.tables[table_name]
             source_table = self.db_from.tables[table_name]
-            operations.extend(source_table.to(target_table))
+            table_ops = source_table.to(target_table)
+            for alter in table_ops:
+                filtered = self._strip_cycled_fk_ops(alter, cycled_fks)
+                if filtered:
+                    operations.append(filtered)
+
+        operations.extend(fk_add_ops)
 
         for table_name in tables_to_remove:
             operations.append(RemoveTable(table_name))
@@ -144,8 +166,135 @@ class Mygration:
 
         return operations
 
+    def _find_fk_ops_for_column_type_changes(self, tables_to_update):
+        """Finds FK constraints that must be temporarily dropped due to column type changes.
+
+        MySQL error 3780 prevents ALTER TABLE from changing the type of a column involved
+        in a foreign key constraint, even with FOREIGN_KEY_CHECKS=0.  This method detects
+        such situations and returns the DROP/ADD operations needed to work around it.
+
+        :param tables_to_update: List of table names being updated
+        :returns: (drop_ops, add_ops, cycled_fk_names) where cycled_fk_names is a set of
+            (table_name, constraint_name) tuples for deduplication with table.to()
+        :rtype: tuple(list, list, set)
+        """
+        if not self.db_from:
+            return ([], [], set())
+
+        changing_columns = {}
+        for table_name in tables_to_update:
+            source_table = self.db_from.tables[table_name]
+            target_table = self.db_to.tables[table_name]
+
+            for col_name in source_table.columns:
+                if col_name not in target_table.columns:
+                    continue
+                source_col = source_table.columns[col_name]
+                target_col = target_table.columns[col_name]
+                if self._column_type_differs(source_col, target_col):
+                    changing_columns[(table_name, col_name)] = True
+
+        if not changing_columns:
+            return ([], [], set())
+
+        fks_to_cycle = {}
+
+        for table_name, table in self.db_from.tables.items():
+            if not table.constraints:
+                continue
+            for constraint_name, constraint in table.constraints.items():
+                local_key = (table_name, constraint.column_name)
+                foreign_key = (constraint.foreign_table_name, constraint.foreign_column_name)
+
+                if local_key in changing_columns or foreign_key in changing_columns:
+                    fk_key = (table_name, constraint_name)
+                    if fk_key in fks_to_cycle:
+                        continue
+
+                    target_table = self.db_to.tables.get(table_name)
+                    if target_table and constraint_name in target_table.constraints:
+                        target_constraint = target_table.constraints[constraint_name]
+                    else:
+                        continue
+
+                    fks_to_cycle[fk_key] = (constraint, target_constraint)
+
+        if not fks_to_cycle:
+            return ([], [], set())
+
+        drop_by_table = {}
+        add_by_table = {}
+
+        for (table_name, constraint_name), (source_constraint, target_constraint) in fks_to_cycle.items():
+            drop_by_table.setdefault(table_name, []).append(RemoveConstraint(source_constraint))
+            add_by_table.setdefault(table_name, []).append(AddConstraint(target_constraint))
+
+        drop_ops = []
+        for table_name, ops in drop_by_table.items():
+            alter = AlterTable(table_name)
+            for op in ops:
+                alter.add_operation(op)
+            drop_ops.append(alter)
+
+        add_ops = []
+        for table_name, ops in add_by_table.items():
+            alter = AlterTable(table_name)
+            for op in ops:
+                alter.add_operation(op)
+            add_ops.append(alter)
+
+        return (drop_ops, add_ops, set(fks_to_cycle.keys()))
+
+    def _strip_cycled_fk_ops(self, alter, cycled_fks):
+        """Removes FK operations from an AlterTable that are already handled by the cycle.
+
+        When _find_fk_ops_for_column_type_changes() emits DROP/ADD FK operations for
+        column type changes, table.to() may also emit DROP/ADD for the same constraints
+        (e.g. if the constraint definition also changed).  This method strips the duplicates.
+
+        :param alter: An AlterTable operation from table.to()
+        :param cycled_fks: Set of (table_name, constraint_name) tuples being cycled
+        :returns: The AlterTable with duplicate FK operations removed (or original if no overlap)
+        :rtype: AlterTable
+        """
+        if not cycled_fks:
+            return alter
+
+        table_name = alter.table_name
+        filtered = AlterTable(table_name)
+        for op in alter:
+            if isinstance(op, (AddConstraint, RemoveConstraint)):
+                constraint_name = op.constraint.name
+                if (table_name, constraint_name) in cycled_fks:
+                    continue
+            filtered.add_operation(op)
+
+        return filtered
+
+    def _column_type_differs(self, source_col, target_col):
+        """Checks if two columns differ in their type attributes (type, length, unsigned).
+
+        These are the attributes that MySQL checks for FK compatibility (error 3780).
+
+        :param source_col: The source (live DB) column
+        :param target_col: The target (SQL files) column
+        :returns: True if the columns differ in type
+        :rtype: bool
+        """
+        if source_col.column_type != target_col.column_type:
+            return True
+        if source_col.length != target_col.length:
+            return True
+        if bool(source_col.unsigned) != bool(target_col.unsigned):
+            return True
+        if source_col.character_set != target_col.character_set:
+            return True
+        if source_col.collate != target_col.collate:
+            return True
+        return False
+
     def _old_process(self):
-        """ Figures out the operations (and proper order) need to get to self.db_to
+        """Figures out the operations (and proper order) need to get to self.db_to
 
         This particular method is no longer used but is kept around for future
         reference.  This was my original attempt, the goal of which was to make the
@@ -185,10 +334,10 @@ class Mygration:
         # know our final table will be fine, so if we can just split off any uncertain
         # foreign key constraints and apply them all at the end when our database is done
         # being updated.  Simple(ish)!
-        #if self.db_from:
-        #check = mygration( self.db_to )
-        #if check.errors_1215:
-        #return [ check.errors_1215, [] ]
+        # if self.db_from:
+        # check = mygration( self.db_to )
+        # if check.errors_1215:
+        # return [ check.errors_1215, [] ]
 
         # First figure out the status of individual tables
         db_from_tables = self.db_from.tables if self.db_from else {}
@@ -200,8 +349,8 @@ class Mygration:
         (errors_1215, operations) = self._process_adds(tracking_db, tables_to_add)
 
         # if we have errors we are done
-        #if errors_1215:
-        #return [ errors_1215, operations ]
+        # if errors_1215:
+        # return [ errors_1215, operations ]
 
         # now apply table updates.  This acts differently: it returns a dictionary with
         # two sets of operations: one to update the tables themselves, and one to update
@@ -210,12 +359,12 @@ class Mygration:
         split_operations = self._process_updates(tracking_db, tables_to_update)
         # remove fks first to avoid 1215 errors caused by trying to remove a column
         # that is being used in a FK constraint that hasn't yet been removed
-        if split_operations['removed_fks']:
-            operations.extend(split_operations['removed_fks'])
-        if split_operations['kitchen_sink']:
-            operations.extend(split_operations['kitchen_sink'])
-        if split_operations['fks']:
-            fk_operations.extend(split_operations['fks'])
+        if split_operations["removed_fks"]:
+            operations.extend(split_operations["removed_fks"])
+        if split_operations["kitchen_sink"]:
+            operations.extend(split_operations["kitchen_sink"])
+        if split_operations["fks"]:
+            fk_operations.extend(split_operations["fks"])
 
         # now that we got some tables modified let's try adding tables again
         # if we have any left.  Remember that tracking_db and tables_to_add
@@ -244,8 +393,8 @@ class Mygration:
             new_table_copy = copy.deepcopy(new_table)
             create_fks = AlterTable(table_to_add)
             for constraint in bad_constraints.values():
-                create_fks.add_operation(AddConstraint(constraint['foreign_key']))
-                new_table_copy.remove_constraint(constraint['foreign_key'])
+                create_fks.add_operation(AddConstraint(constraint["foreign_key"]))
+                new_table_copy.remove_constraint(constraint["foreign_key"])
             operations.append(new_table_copy.create())
             fk_operations.append(create_fks)
 
@@ -262,7 +411,7 @@ class Mygration:
         return operations
 
     def _process_adds(self, tracking_db, tables_to_add):
-        """ Runs through tables_to_add and resolves FK constraints to determine order to add tables in
+        """Runs through tables_to_add and resolves FK constraints to determine order to add tables in
 
         tracking_db and tables_to_add are passed in by reference and modified
 
@@ -311,12 +460,12 @@ class Mygration:
                 # otherwise it is no good: record as such
                 tables_to_add.remove(new_table_name)
                 for error in broken_constraints.values():
-                    errors_1215.append(error['error'])
+                    errors_1215.append(error["error"])
 
         return (errors_1215, operations)
 
     def _process_updates(self, tracking_db, tables_to_update):
-        """ Runs through tables_to_update and resolves FK constraints to determine order to add them in
+        """Runs through tables_to_update and resolves FK constraints to determine order to add them in
 
         tracking_db is passed in by reference and modified
 
@@ -332,24 +481,24 @@ class Mygration:
 
         tables_to_update = tables_to_update[:]
 
-        operations = {'removed_fks': [], 'fks': [], 'kitchen_sink': []}
+        operations = {"removed_fks": [], "fks": [], "kitchen_sink": []}
 
         for update_table_name in tables_to_update:
             target_table = self.db_to.tables[update_table_name]
             source_table = self.db_from.tables[update_table_name]
 
             more_operations = source_table.to(target_table, True)
-            if 'removed_fks' in more_operations:
-                operations['removed_fks'].append(more_operations['removed_fks'])
-                for operation in more_operations['removed_fks']:
+            if "removed_fks" in more_operations:
+                operations["removed_fks"].append(more_operations["removed_fks"])
+                for operation in more_operations["removed_fks"]:
                     tracking_db.apply_operation(update_table_name, operation)
-            if 'fks' in more_operations:
-                operations['fks'].append(more_operations['fks'])
-                for operation in more_operations['fks']:
+            if "fks" in more_operations:
+                operations["fks"].append(more_operations["fks"])
+                for operation in more_operations["fks"]:
                     tracking_db.apply_operation(update_table_name, operation)
-            if 'kitchen_sink' in more_operations:
-                operations['kitchen_sink'].append(more_operations['kitchen_sink'])
-                for operation in more_operations['kitchen_sink']:
+            if "kitchen_sink" in more_operations:
+                operations["kitchen_sink"].append(more_operations["kitchen_sink"])
+                for operation in more_operations["kitchen_sink"]:
                     tracking_db.apply_operation(update_table_name, operation)
 
         return operations
