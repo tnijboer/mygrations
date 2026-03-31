@@ -147,15 +147,29 @@ class Mygration:
 
         operations.extend(fk_drop_ops)
 
+        # Use split_operations=True to separate FK additions from column/key changes.
+        # This ensures ALL column type changes across ALL tables complete before any
+        # new FK constraints are added — preventing MySQL error 3780 when a child table
+        # (e.g. company_domains) is processed before its parent (e.g. businesses)
+        # alphabetically and tries to ADD FK before the parent column type is updated.
+        deferred_fk_ops = []
         for table_name in tables_to_update:
             target_table = self.db_to.tables[table_name]
             source_table = self.db_from.tables[table_name]
-            table_ops = source_table.to(target_table)
-            for alter in table_ops:
-                filtered = self._strip_cycled_fk_ops(alter, cycled_fks)
+            split_ops = source_table.to(target_table, True)
+
+            if "removed_fks" in split_ops:
+                filtered = self._strip_cycled_fk_ops(split_ops["removed_fks"], cycled_fks)
                 if filtered:
                     operations.append(filtered)
+            if "kitchen_sink" in split_ops:
+                operations.append(split_ops["kitchen_sink"])
+            if "fks" in split_ops:
+                filtered = self._strip_cycled_fk_ops(split_ops["fks"], cycled_fks)
+                if filtered:
+                    deferred_fk_ops.append(filtered)
 
+        operations.extend(deferred_fk_ops)
         operations.extend(fk_add_ops)
 
         for table_name in tables_to_remove:
@@ -173,9 +187,14 @@ class Mygration:
         in a foreign key constraint, even with FOREIGN_KEY_CHECKS=0.  This method detects
         such situations and returns the DROP/ADD operations needed to work around it.
 
+        When the FK name in the live DB differs from the SQL files (e.g. MySQL auto-named
+        'child_records_ibfk_1' vs file-generated 'business_id_businesses_fk'), we fall back
+        to matching by column/reference (column_name, foreign_table_name, foreign_column_name).
+
         :param tables_to_update: List of table names being updated
         :returns: (drop_ops, add_ops, cycled_fk_names) where cycled_fk_names is a set of
-            (table_name, constraint_name) tuples for deduplication with table.to()
+            (table_name, constraint_name) tuples for deduplication with table.to().
+            When source and target FK names differ, BOTH names are included in cycled_fk_names.
         :rtype: tuple(list, list, set)
         """
         if not self.db_from:
@@ -212,22 +231,56 @@ class Mygration:
                         continue
 
                     target_table = self.db_to.tables.get(table_name)
-                    if target_table and constraint_name in target_table.constraints:
-                        target_constraint = target_table.constraints[constraint_name]
-                    else:
+                    if not target_table:
+                        # Table is being dropped — still need to DROP this FK before the
+                        # column type change, but no ADD is needed (table will be removed).
+                        fks_to_cycle[fk_key] = (constraint, None, None)
                         continue
 
-                    fks_to_cycle[fk_key] = (constraint, target_constraint)
+                    target_constraint = None
+                    target_constraint_name = None
+                    if constraint_name in target_table.constraints:
+                        target_constraint = target_table.constraints[constraint_name]
+                        target_constraint_name = constraint_name
+                    else:
+                        # FK name mismatch (e.g. MySQL auto-named 'table_ibfk_1' vs
+                        # file-generated 'col_table_fk').  Match by column/reference instead.
+                        target_constraint = self._find_matching_constraint(target_table, constraint)
+                        if target_constraint:
+                            target_constraint_name = target_constraint.name
+
+                    if not target_constraint:
+                        continue
+
+                    fks_to_cycle[fk_key] = (constraint, target_constraint, target_constraint_name)
 
         if not fks_to_cycle:
             return ([], [], set())
 
         drop_by_table = {}
         add_by_table = {}
+        cycled_fk_names = set()
+        # Track which target constraints have already been scheduled for ADD.
+        # When the live DB has duplicate FKs (e.g. ibfk_1 through ibfk_18 all
+        # referencing the same column/table), each maps to the SAME target
+        # constraint via _find_matching_constraint().  We must DROP all source
+        # duplicates but ADD the target constraint only once.
+        added_targets = set()
 
-        for (table_name, constraint_name), (source_constraint, target_constraint) in fks_to_cycle.items():
+        for (table_name, constraint_name), (
+            source_constraint,
+            target_constraint,
+            target_constraint_name,
+        ) in fks_to_cycle.items():
             drop_by_table.setdefault(table_name, []).append(RemoveConstraint(source_constraint))
-            add_by_table.setdefault(table_name, []).append(AddConstraint(target_constraint))
+            if target_constraint:
+                add_key = (table_name, target_constraint_name)
+                if add_key not in added_targets:
+                    add_by_table.setdefault(table_name, []).append(AddConstraint(target_constraint))
+                    added_targets.add(add_key)
+            cycled_fk_names.add((table_name, constraint_name))
+            if target_constraint_name and target_constraint_name != constraint_name:
+                cycled_fk_names.add((table_name, target_constraint_name))
 
         drop_ops = []
         for table_name, ops in drop_by_table.items():
@@ -243,7 +296,7 @@ class Mygration:
                 alter.add_operation(op)
             add_ops.append(alter)
 
-        return (drop_ops, add_ops, set(fks_to_cycle.keys()))
+        return (drop_ops, add_ops, cycled_fk_names)
 
     def _strip_cycled_fk_ops(self, alter, cycled_fks):
         """Removes FK operations from an AlterTable that are already handled by the cycle.
@@ -270,6 +323,23 @@ class Mygration:
             filtered.add_operation(op)
 
         return filtered
+
+    def _find_matching_constraint(self, target_table, source_constraint):
+        """Finds a constraint in target_table matching by column/reference, ignoring name.
+
+        :param target_table: The target table to search in
+        :param source_constraint: The source constraint to match against
+        :returns: The matching target constraint, or None
+        :rtype: Constraint|None
+        """
+        for target_constraint in target_table.constraints.values():
+            if (
+                target_constraint.column_name == source_constraint.column_name
+                and target_constraint.foreign_table_name == source_constraint.foreign_table_name
+                and target_constraint.foreign_column_name == source_constraint.foreign_column_name
+            ):
+                return target_constraint
+        return None
 
     def _column_type_differs(self, source_col, target_col):
         """Checks if two columns differ in their type attributes (type, length, unsigned).
