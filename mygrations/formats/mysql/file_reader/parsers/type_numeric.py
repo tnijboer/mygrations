@@ -44,7 +44,7 @@ class TypeNumeric(Parser, Type):
         self._schema_errors = []
         self._schema_warnings = []
         self._name = self._values["name"].strip("`")
-        self._column_type = self._values["type"]
+        self._column_type = self._normalize_type(self._values["type"])
         self._length = self._values["length"]
         self._unsigned = True if "UNSIGNED" in self._values else False
         self._null = False if "NOT NULL" in self._values else True
