@@ -165,12 +165,20 @@ class Table:
         if not len(self.columns):
             self._schema_errors.append(f"Table '{self.name}' does not have any columns")
 
+        primary_column_names = set()
+        for index in self._indexes.values():
+            if index.is_primary():
+                for col in index.columns:
+                    primary_column_names.add(col if isinstance(col, str) else col.name)
+
         # start with errors from "children" and append the table name for context
         for type_to_check in [self._columns, self._indexes, self._constraints]:
             for to_check in type_to_check.values():
                 for error in to_check.schema_errors:
                     self._schema_errors.append(f"{error} in table '{self.name}'")
                 for warning in to_check.schema_warnings:
+                    if hasattr(to_check, "name") and to_check.name in primary_column_names:
+                        continue
                     self._schema_warnings.append(f"{warning} in table '{self.name}'")
                 for error in to_check.parsing_errors:
                     self._parsing_errors.append(f"{error} in table '{self.name}'")
