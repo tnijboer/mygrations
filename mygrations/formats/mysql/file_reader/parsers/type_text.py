@@ -15,8 +15,6 @@ class TypeText(Parser, Type):
         "longtext": True,
     }
 
-    has_comma = False
-
     # description text charset utf8 collate utf8
     # hackish? maybe (i.e. yes) the repeated COLLATE and CHARACTER SETS take care of uncertain
     # ordering.  I could also use `children` which is order-agnostic, but I'm being lazy
@@ -40,20 +38,15 @@ class TypeText(Parser, Type):
 
     def process(self):
 
-        self.has_comma = True if "ending_comma" in self._values else False
-
-        self._parsing_errors = []
-        self._parsing_warnings = []
-        self._schema_errors = []
-        self._schema_warnings = []
-        self._name = self._values["name"].strip("`")
+        self._init_errors()
+        self._name = self._extract_name()
         self._length = ""
         self._has_default = "default" in self._values
-        self._default = self._values["default"] if "default" in self._values else None
+        self._default = self._values.get("default")
         self._column_type = self._normalize_type(self._values["type"])
-        self._null = False if "NOT NULL" in self._values else True
-        self._character_set = self._values["character_set"].strip("'") if "character_set" in self._values else None
-        self._collate = self._values["collate"].strip("'") if "collate" in self._values else None
+        self._null = self._extract_null()
+        self._character_set = self._unquote(self._values.get("character_set"))
+        self._collate = self._unquote(self._values.get("collate"))
 
         # slightly more work on the default
         if self._default and len(self._default) >= 2 and self._default[0] == "'" and self._default[-1] == "'":

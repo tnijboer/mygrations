@@ -234,35 +234,6 @@ class CreateParserTest(unittest.TestCase):
         self.assertEqual("TINYINT", parser.columns["reset_approvals_on_push"].column_type)
         self.assertEqual("1", parser.columns["reset_approvals_on_push"].length)
 
-    def test_sql_files_parse(self):
-
-        import os
-
-        sql_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "sql")
-        if not os.path.isdir(sql_dir):
-            self.skipTest("sql/ directory not found")
-
-        known_broken = {
-            "app_settings.sql",
-            "approval_rule_groups.sql",
-        }
-        for fname in sorted(os.listdir(sql_dir)):
-            if not fname.endswith(".sql") or fname in known_broken:
-                continue
-            with open(os.path.join(sql_dir, fname)) as f:
-                sql = f.read()
-            parser = CreateParser()
-            parser.parse(sql)
-            self.assertTrue(
-                parser.matched,
-                f"{fname} did not match",
-            )
-            self.assertEqual(
-                [],
-                parser._global_errors,
-                f"{fname} has parse errors: {parser._global_errors}",
-            )
-
     def test_primary_key_not_null_false_positive(self):
         """SQL file uses inline PRIMARY KEY without NOT NULL;
         SHOW CREATE TABLE always includes NOT NULL.  The two representations

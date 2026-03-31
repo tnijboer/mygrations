@@ -1,11 +1,9 @@
-import re
 from mygrations.core.parse.parser import Parser
 from mygrations.formats.mysql.definitions.index import Index
 
 
 class IndexKey(Parser, Index):
     _index_type = "index"
-    has_comma = False
 
     # KEY account_id (account_id,name)
     rules = [
@@ -19,5 +17,4 @@ class IndexKey(Parser, Index):
 
     def process(self):
         self._name = self._values["name"].strip().strip("`")
-        self._columns = [re.sub(r"\(\d+\)$", "", col.strip()) for col in self._values["columns"]]
-        self.has_comma = True if "ending_comma" in self._values else False
+        self._columns = self._clean_index_columns(self._values["columns"])

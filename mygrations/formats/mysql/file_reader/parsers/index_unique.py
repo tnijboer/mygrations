@@ -1,11 +1,9 @@
-import re
 from mygrations.core.parse.parser import Parser
 from mygrations.formats.mysql.definitions.index import Index
 
 
 class IndexUnique(Parser, Index):
     _index_type = "unique"
-    has_comma = False
 
     # UNIQUE account_id (account_id)
     rules = [
@@ -21,5 +19,4 @@ class IndexUnique(Parser, Index):
     def process(self):
 
         self._name = self._values["name"].strip().strip("`") if "name" in self._values else ""
-        self._columns = [re.sub(r"\(\d+\)$", "", col.strip()) for col in self._values["columns"]]
-        self.has_comma = True if "ending_comma" in self._values else False
+        self._columns = self._clean_index_columns(self._values["columns"])
