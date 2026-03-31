@@ -6,7 +6,6 @@ class TypeDecimal(Parser, Type):
     allowed_types = {"real": True, "double": True, "float": True, "decimal": True, "numeric": True}
 
     decimals = ""
-    has_comma = False
 
     # longitude float(20,4) unsigned default null
     rules = [
@@ -26,20 +25,15 @@ class TypeDecimal(Parser, Type):
 
     def process(self):
 
-        self.has_comma = True if "ending_comma" in self._values else False
-
-        self._parsing_errors = []
-        self._parsing_warnings = []
-        self._schema_errors = []
-        self._schema_warnings = []
-        self._name = self._values["name"].strip("`")
+        self._init_errors()
+        self._name = self._extract_name()
         self._column_type = self._values["type"]
         self.decimals = self._values["decimals"]
         self._length = "%s,%s" % (self._values["length"], self._values["decimals"])
-        self._unsigned = True if "UNSIGNED" in self._values else False
+        self._unsigned = "UNSIGNED" in self._values
         self._has_default = "default" in self._values
-        self._null = False if "NOT NULL" in self._values else True
-        self._default = self._values["default"] if "default" in self._values else None
+        self._null = self._extract_null()
+        self._default = self._values.get("default")
 
         # make sense of the default
         if self._default and len(self._default) >= 2 and self._default[0] == "'" and self._default[-1] == "'":

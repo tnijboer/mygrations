@@ -3,6 +3,32 @@ from mygrations.core.definitions.columns.column import Column
 
 
 class Type:
+    @staticmethod
+    def _unquote(value):
+        """Strip surrounding single quotes from *value* if present.
+
+        Returns the stripped string, or the original value unchanged if
+        it is not quoted.
+        """
+        if value and len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+            return value.strip("'")
+        return value
+
+    def _init_errors(self):
+        """Initialise the parsing/schema error and warning lists."""
+        self._parsing_errors = []
+        self._parsing_warnings = []
+        self._schema_errors = []
+        self._schema_warnings = []
+
+    def _extract_name(self):
+        """Return the column name with surrounding backticks removed."""
+        return self._values["name"].strip("`")
+
+    def _extract_null(self):
+        """Return False when NOT NULL is present, True otherwise."""
+        return False if "NOT NULL" in self._values else True
+
     column_type_map = {
         "INTEGER": columns.Numeric,
         "INT": columns.Numeric,

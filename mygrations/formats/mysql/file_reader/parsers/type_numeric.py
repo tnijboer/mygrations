@@ -17,7 +17,6 @@ class TypeNumeric(Parser, Type):
         "varchar": True,
     }
 
-    has_comma = False
     is_char = False
 
     # `created` int(10) unsigned not null default 0 AUTO_INCREMENT
@@ -37,20 +36,15 @@ class TypeNumeric(Parser, Type):
 
     def process(self):
 
-        self.has_comma = True if "ending_comma" in self._values else False
-
-        self._parsing_errors = []
-        self._parsing_warnings = []
-        self._schema_errors = []
-        self._schema_warnings = []
-        self._name = self._values["name"].strip("`")
+        self._init_errors()
+        self._name = self._extract_name()
         self._column_type = self._normalize_type(self._values["type"])
         self._length = self._values["length"]
-        self._unsigned = True if "UNSIGNED" in self._values else False
-        self._null = False if "NOT NULL" in self._values else True
+        self._unsigned = "UNSIGNED" in self._values
+        self._null = self._extract_null()
         self._has_default = "default" in self._values
-        self._default = self._values["default"] if "default" in self._values else None
-        self._auto_increment = True if "AUTO_INCREMENT" in self._values else False
+        self._default = self._values.get("default")
+        self._auto_increment = "AUTO_INCREMENT" in self._values
         self.is_char = self._column_type in ["char", "varchar"]
 
         # make sense of the default

@@ -3,7 +3,6 @@ from .type import Type
 
 
 class TypePlain(Parser, Type):
-    has_comma = False
     _is_primary_key = False
 
     # created date
@@ -32,20 +31,15 @@ class TypePlain(Parser, Type):
 
     def process(self):
 
-        self.has_comma = True if "ending_comma" in self._values else False
-
-        self._parsing_errors = []
-        self._parsing_warnings = []
-        self._schema_errors = []
-        self._schema_warnings = []
-        self._name = self._values["name"].strip("`")
+        self._init_errors()
+        self._name = self._extract_name()
         self._length = ""
         self._column_type = self._normalize_type(self._values["type"])
-        self._unsigned = True if "UNSIGNED" in self._values else False
+        self._unsigned = "UNSIGNED" in self._values
         self._has_default = "default" in self._values
-        self._default = self._values["default"].strip("'") if "default" in self._values else None
-        self._auto_increment = True if "AUTO_INCREMENT" in self._values else False
-        self._is_primary_key = True if "PRIMARY KEY" in self._values else False
+        self._default = self._unquote(self._values.get("default"))
+        self._auto_increment = "AUTO_INCREMENT" in self._values
+        self._is_primary_key = "PRIMARY KEY" in self._values
 
         if "NOT NULL" in self._values:
             self._null = False
