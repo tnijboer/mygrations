@@ -97,6 +97,29 @@ class TestTypePlain(unittest.TestCase):
         self.assertEqual("1", parser._length)
         self.assertEqual("0", parser._default)
 
+    def test_primary_key_implies_not_null(self):
+        parser = TypePlain()
+        returned = parser.parse("id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,")
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("", returned)
+        self.assertEqual("id", parser._name)
+        self.assertEqual("INT", parser._column_type)
+        self.assertTrue(parser._unsigned)
+        self.assertFalse(parser._null)
+        self.assertTrue(parser._is_primary_key)
+        self.assertTrue(parser._auto_increment)
+
+    def test_primary_key_without_not_null_without_auto_increment(self):
+        parser = TypePlain()
+        returned = parser.parse("id INT UNSIGNED PRIMARY KEY,")
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("", returned)
+        self.assertFalse(parser._null)
+        self.assertTrue(parser._is_primary_key)
+        self.assertFalse(parser._auto_increment)
+
     def test_strip_backticks(self):
 
         # parse typical insert values
@@ -106,3 +129,22 @@ class TestTypePlain(unittest.TestCase):
         self.assertTrue(parser.matched)
         self.assertEqual("", returned)
         self.assertEqual("created", parser._name)
+
+    def test_integer_normalized_to_int(self):
+        parser = TypePlain()
+        returned = parser.parse("access_level INTEGER,")
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("", returned)
+        self.assertEqual("access_level", parser._name)
+        self.assertEqual("int", parser._column_type)
+
+    def test_integer_with_default_normalized_to_int(self):
+        parser = TypePlain()
+        returned = parser.parse("gitlab_access_level INTEGER NOT NULL DEFAULT 0,")
+
+        self.assertTrue(parser.matched)
+        self.assertEqual("", returned)
+        self.assertEqual("int", parser._column_type)
+        self.assertFalse(parser._null)
+        self.assertEqual("0", parser._default)

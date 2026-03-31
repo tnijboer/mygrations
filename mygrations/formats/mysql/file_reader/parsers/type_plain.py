@@ -40,7 +40,7 @@ class TypePlain(Parser, Type):
         self._schema_warnings = []
         self._name = self._values["name"].strip("`")
         self._length = ""
-        self._column_type = self._values["type"]
+        self._column_type = self._normalize_type(self._values["type"])
         self._unsigned = True if "UNSIGNED" in self._values else False
         self._has_default = "default" in self._values
         self._default = self._values["default"].strip("'") if "default" in self._values else None
@@ -48,6 +48,12 @@ class TypePlain(Parser, Type):
         self._is_primary_key = True if "PRIMARY KEY" in self._values else False
 
         if "NOT NULL" in self._values:
+            self._null = False
+        elif self._is_primary_key:
+            # MySQL treats PRIMARY KEY columns as implicitly NOT NULL, and
+            # SHOW CREATE TABLE always outputs the explicit NOT NULL.  Match
+            # that behaviour so comparisons don't produce false-positive
+            # CHANGE operations.
             self._null = False
         else:
             self._null = True

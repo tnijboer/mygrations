@@ -262,3 +262,86 @@ class CreateParserTest(unittest.TestCase):
                 parser._global_errors,
                 f"{fname} has parse errors: {parser._global_errors}",
             )
+
+    def test_primary_key_not_null_false_positive(self):
+        """SQL file uses inline PRIMARY KEY without NOT NULL;
+        SHOW CREATE TABLE always includes NOT NULL.  The two representations
+        must produce identical columns so no CHANGE is emitted."""
+
+        sql_file = """CREATE TABLE businesses (
+            id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+            name varchar(255)
+        )"""
+
+        show_create = """CREATE TABLE `businesses` (
+            `id` int unsigned NOT NULL AUTO_INCREMENT,
+            `name` varchar(255) DEFAULT NULL,
+            PRIMARY KEY (`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+
+        file_parser = CreateParser()
+        file_parser.parse(sql_file)
+        self.assertTrue(file_parser.matched)
+
+        db_parser = CreateParser()
+        db_parser.parse(show_create)
+        self.assertTrue(db_parser.matched)
+
+        file_id = file_parser.columns["id"]
+        db_id = db_parser.columns["id"]
+
+        self.assertEqual(str(file_id), str(db_id))
+        self.assertTrue(file_id.is_really_the_same_as(db_id))
+
+    def test_integer_synonym_no_false_positive_change(self):
+        """SQL file uses INTEGER (MySQL synonym for INT).  SHOW CREATE TABLE
+        always outputs int.  No CHANGE should be emitted."""
+
+        sql_file = """CREATE TABLE members (
+            id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+            access_level INTEGER NOT NULL DEFAULT 0,
+            count INTEGER
+        )"""
+
+        show_create = """CREATE TABLE `members` (
+            `id` int unsigned NOT NULL AUTO_INCREMENT,
+            `access_level` int NOT NULL DEFAULT 0,
+            `count` int DEFAULT NULL,
+            PRIMARY KEY (`id`)
+        ) ENGINE=InnoDB"""
+
+        file_parser = CreateParser()
+        file_parser.parse(sql_file)
+        self.assertTrue(file_parser.matched)
+
+        db_parser = CreateParser()
+        db_parser.parse(show_create)
+        self.assertTrue(db_parser.matched)
+
+        operations = db_parser.to(file_parser)
+        self.assertEqual(0, len(operations))
+
+    def test_integer_with_length_synonym_no_false_positive(self):
+        """SQL file uses INTEGER(1), DB has int(1).  No CHANGE should be emitted."""
+
+        sql_file = """CREATE TABLE settings (
+            id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+            enabled INTEGER(1)
+        )"""
+
+        show_create = """CREATE TABLE `settings` (
+            `id` int unsigned NOT NULL AUTO_INCREMENT,
+            `enabled` int(1) DEFAULT NULL,
+            PRIMARY KEY (`id`)
+        ) ENGINE=InnoDB"""
+
+        file_parser = CreateParser()
+        file_parser.parse(sql_file)
+        self.assertTrue(file_parser.matched)
+
+        db_parser = CreateParser()
+        db_parser.parse(show_create)
+        self.assertTrue(db_parser.matched)
+
+        operations = db_parser.to(file_parser)
+        self.assertEqual(0, len(operations))
