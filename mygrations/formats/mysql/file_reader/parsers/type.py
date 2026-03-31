@@ -39,6 +39,22 @@ class Type:
         "SET": columns.Enum,
     }
 
+    # MySQL type synonyms: map the synonym to the canonical name that
+    # SHOW CREATE TABLE produces.  This prevents false-positive CHANGE
+    # operations when the SQL file uses the synonym form.
+    _type_synonyms = {
+        "integer": "int",
+    }
+
+    @classmethod
+    def _normalize_type(cls, raw_type: str) -> str:
+        """Return the canonical MySQL type name for *raw_type*.
+
+        For example ``INTEGER`` is normalised to ``int`` because MySQL's
+        ``SHOW CREATE TABLE`` always emits ``int``.
+        """
+        return cls._type_synonyms.get(raw_type.lower(), raw_type)
+
     def as_definition(self) -> Column:
         """
         Returns the parsed column as a MySQL Column Definition

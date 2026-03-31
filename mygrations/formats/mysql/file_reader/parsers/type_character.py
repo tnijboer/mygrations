@@ -55,7 +55,7 @@ class TypeCharacter(Parser, Type):
         self._schema_errors = []
         self._schema_warnings = []
         self._name = self._values["name"].strip("`")
-        self._column_type = self._values["type"]
+        self._column_type = self._normalize_type(self._values["type"])
         self._length = self._values["length"]
         self._null = False if "NOT NULL" in self._values else True
         self._has_default = "default" in self._values
